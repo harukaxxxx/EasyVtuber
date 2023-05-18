@@ -848,6 +848,26 @@ def main():
             pose_vector_c[1] = y_angle * 2.0  # temp weight
             pose_vector_c[2] = (z_angle + 1.5) * 2  # temp weight
 
+        if args.auto_mouth_threshold != 0:
+            if 'stream' not in locals().keys():
+
+                import pyaudio
+                p = pyaudio.PyAudio()
+                output_device_index=p.get_default_input_device_info()["index"]
+                output_device_channels=p.get_default_input_device_info()["maxInputChannels"]
+                output_device_rate=int(p.get_default_input_device_info()["defaultSampleRate"])
+                stream = p.open(format=pyaudio.paInt16,
+                                channels=output_device_channels,
+                                rate=output_device_rate,
+                                input=True,
+                                output_device_index=output_device_index)
+            data = stream.read(1024)
+            # Convert data to numpy array
+            data = np.frombuffer(data, dtype=np.int16)
+            # Calculate volume
+            volume = min(1,np.max(np.abs(data))/args.auto_mouth_threshold)
+            mouth_eye_vector_c[14] = volume
+            
         pose_vector_c[3] = pose_vector_c[1]
         pose_vector_c[4] = pose_vector_c[2]
 
