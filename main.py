@@ -685,10 +685,15 @@ def main():
             pose_vector_c = [0.0] * 6
 
             if len(blender_data)!=0:
-                mouth_eye_vector_c[2] = 1-blender_data['leftEyeOpen']
-                mouth_eye_vector_c[3] = 1-blender_data['rightEyeOpen']
+                def sigmoid(x):
+                    return 1 / (1 + math.exp(-(x-0.5)*10))
+                # 用了sigmoid降低两端大概0.2范围的灵敏度
+                mouth_eye_vector_c[2] = sigmoid(1-blender_data['leftEyeOpen'])
+                mouth_eye_vector_c[3] = sigmoid(1-blender_data['rightEyeOpen'])
+                #print(mouth_eye_vector_c[2])
 
-                mouth_eye_vector_c[14] = max(blender_data['MouthOpen'],0)
+                # 用了sqrt提升低数值的灵敏度
+                mouth_eye_vector_c[14] = math.sqrt(max(blender_data['MouthOpen'],0))
                 # print(mouth_eye_vector_c[14])
 
                 mouth_eye_vector_c[25] = -blender_data['eyeRotationY']*3-(blender_data['rotationX'])/57.3*1.5
