@@ -6,6 +6,7 @@ import pyvirtualcam
 import numpy as np
 import mediapipe as mp
 from PIL import Image
+import pyaudiowpatch as pyaudio
 
 import tha2.poser.modes.mode_20_wx
 from models import TalkingAnimeLight, TalkingAnime3
@@ -30,8 +31,12 @@ from tha2.mocap.ifacialmocap_constants import *
 
 from args import args
 
-from tha3.util import torch_linear_to_srgb, resize_PIL_image, extract_PIL_image_from_filelike, \
-    extract_pytorch_image_from_PIL_image
+from tha3.util import (
+    torch_linear_to_srgb,
+    resize_PIL_image,
+    extract_PIL_image_from_filelike,
+    extract_pytorch_image_from_PIL_image,
+)
 
 import collections
 
@@ -53,7 +58,11 @@ class FPS:
             return 0.0
 
 
-device = torch.device('cuda') if torch.cuda.is_available() and not args.skip_model else torch.device('cpu')
+device = (
+    torch.device("cuda")
+    if torch.cuda.is_available() and not args.skip_model
+    else torch.device("cpu")
+)
 
 
 def create_default_blender_data():
@@ -84,10 +93,10 @@ class OSFClientProcess(Process):
     def __init__(self):
         super().__init__()
         self.queue = Queue()
-        self.should_terminate = Value('b', False)
-        self.address = args.osf.split(':')[0]
-        self.port = int(args.osf.split(':')[1])
-        self.ifm_fps_number = Value('f', 0.0)
+        self.should_terminate = Value("b", False)
+        self.address = args.osf.split(":")[0]
+        self.port = int(args.osf.split(":")[1])
+        self.ifm_fps_number = Value("f", 0.0)
         self.perf_time = 0
 
     def run(self):
@@ -103,81 +112,92 @@ class OSFClientProcess(Process):
                 socket_bytes = self.socket.recv(8192)
             except socket.error as e:
                 err = e.args[0]
-                if err == errno.EAGAIN or err == errno.EWOULDBLOCK or err == 'timed out':
+                if err == errno.EAGAIN or err == errno.EWOULDBLOCK or err == "timed out":
                     continue
                 else:
                     raise e
 
             # socket_string = socket_bytes.decode("utf-8")
-            osf_raw = (struct.unpack('=di2f2fB1f4f3f3f68f136f210f14f', socket_bytes))
+            osf_raw = struct.unpack("=di2f2fB1f4f3f3f68f136f210f14f", socket_bytes)
             # print(osf_raw[432:])
             data = {}
             OpenSeeDataIndex = [
-                'time',
-                'id',
-                'cameraResolutionW',
-                'cameraResolutionH',
-                'rightEyeOpen',
-                'leftEyeOpen',
-                'got3DPoints',
-                'fit3DError',
-                'rawQuaternionX',
-                'rawQuaternionY',
-                'rawQuaternionZ',
-                'rawQuaternionW',
-                'rawEulerX',
-                'rawEulerY',
-                'rawEulerZ',
-                'translationY',
-                'translationX',
-                'translationZ',
+                "time",
+                "id",
+                "cameraResolutionW",
+                "cameraResolutionH",
+                "rightEyeOpen",
+                "leftEyeOpen",
+                "got3DPoints",
+                "fit3DError",
+                "rawQuaternionX",
+                "rawQuaternionY",
+                "rawQuaternionZ",
+                "rawQuaternionW",
+                "rawEulerX",
+                "rawEulerY",
+                "rawEulerZ",
+                "translationY",
+                "translationX",
+                "translationZ",
             ]
             for i in range(len(OpenSeeDataIndex)):
                 data[OpenSeeDataIndex[i]] = osf_raw[i]
-            data['translationY'] *= -1
-            data['translationZ'] *= -1
-            data['rotationY'] = data['rawEulerY']-10
-            data['rotationX'] = (-data['rawEulerX'] + 360)%360-180
-            data['rotationZ'] = (data['rawEulerZ'] - 90)
+            data["translationY"] *= -1
+            data["translationZ"] *= -1
+            data["rotationY"] = data["rawEulerY"] - 10
+            data["rotationX"] = (-data["rawEulerX"] + 360) % 360 - 180
+            data["rotationZ"] = data["rawEulerZ"] - 90
             OpenSeeFeatureIndex = [
-                'EyeLeft',
-                'EyeRight',
-                'EyebrowSteepnessLeft',
-                'EyebrowUpDownLeft',
-                'EyebrowQuirkLeft',
-                'EyebrowSteepnessRight',
-                'EyebrowUpDownRight',
-                'EyebrowQuirkRight',
-                'MouthCornerUpDownLeft',
-                'MouthCornerInOutLeft',
-                'MouthCornerUpDownRight',
-                'MouthCornerInOutRight',
-                'MouthOpen',
-                'MouthWide'
+                "EyeLeft",
+                "EyeRight",
+                "EyebrowSteepnessLeft",
+                "EyebrowUpDownLeft",
+                "EyebrowQuirkLeft",
+                "EyebrowSteepnessRight",
+                "EyebrowUpDownRight",
+                "EyebrowQuirkRight",
+                "MouthCornerUpDownLeft",
+                "MouthCornerInOutLeft",
+                "MouthCornerUpDownRight",
+                "MouthCornerInOutRight",
+                "MouthOpen",
+                "MouthWide",
             ]
 
             for i in range(68):
-                data['confidence' + str(i)] = osf_raw[i + 18]
+                data["confidence" + str(i)] = osf_raw[i + 18]
             for i in range(68):
-                data['pointsX' + str(i)] = osf_raw[i * 2 + 18 + 68]
-                data['pointsY' + str(i)] = osf_raw[i * 2 + 18 + 68 + 1]
+                data["pointsX" + str(i)] = osf_raw[i * 2 + 18 + 68]
+                data["pointsY" + str(i)] = osf_raw[i * 2 + 18 + 68 + 1]
             for i in range(70):
-                data['points3DX' + str(i)] = osf_raw[i * 3 + 18 + 68 + 68 * 2]
-                data['points3DY' + str(i)] = osf_raw[i * 3 + 18 + 68 + 68 * 2 + 1]
-                data['points3DZ' + str(i)] = osf_raw[i * 3 + 18 + 68 + 68 * 2 + 2]
+                data["points3DX" + str(i)] = osf_raw[i * 3 + 18 + 68 + 68 * 2]
+                data["points3DY" + str(i)] = osf_raw[i * 3 + 18 + 68 + 68 * 2 + 1]
+                data["points3DZ" + str(i)] = osf_raw[i * 3 + 18 + 68 + 68 * 2 + 2]
 
             for i in range(len(OpenSeeFeatureIndex)):
                 data[OpenSeeFeatureIndex[i]] = osf_raw[i + 432]
             # print(data['rotationX'],data['rotationY'],data['rotationZ'])
 
-            a = np.array([
-                data['points3DX66'] - data['points3DX68'] + data['points3DX67'] - data['points3DX69'],
-                data['points3DY66'] - data['points3DY68'] + data['points3DY67'] - data['points3DY69'],
-                data['points3DZ66'] - data['points3DZ68'] + data['points3DZ67'] - data['points3DZ69']
-            ])
-            a = (a / np.linalg.norm(a))
-            data['eyeRotationX'] = a[0]
-            data['eyeRotationY'] = a[1]
+            a = np.array(
+                [
+                    data["points3DX66"]
+                    - data["points3DX68"]
+                    + data["points3DX67"]
+                    - data["points3DX69"],
+                    data["points3DY66"]
+                    - data["points3DY68"]
+                    + data["points3DY67"]
+                    - data["points3DY69"],
+                    data["points3DZ66"]
+                    - data["points3DZ68"]
+                    + data["points3DZ67"]
+                    - data["points3DZ69"],
+                ]
+            )
+            a = a / np.linalg.norm(a)
+            data["eyeRotationX"] = a[0]
+            data["eyeRotationY"] = a[1]
             try:
                 self.queue.put_nowait(data)
             except queue.Full:
@@ -193,19 +213,18 @@ class IFMClientProcess(Process):
     def __init__(self):
         super().__init__()
         self.queue = Queue()
-        self.should_terminate = Value('b', False)
-        self.address = args.ifm.split(':')[0]
-        self.port = int(args.ifm.split(':')[1])
-        self.ifm_fps_number = Value('f', 0.0)
+        self.should_terminate = Value("b", False)
+        self.address = args.ifm.split(":")[0]
+        self.port = int(args.ifm.split(":")[1])
+        self.ifm_fps_number = Value("f", 0.0)
         self.perf_time = 0
 
     def run(self):
-
         udpClntSock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
         data = "iFacialMocap_sahuasouryya9218sauhuiayeta91555dy3719"
 
-        data = data.encode('utf-8')
+        data = data.encode("utf-8")
 
         udpClntSock.sendto(data, (self.address, self.port))
 
@@ -214,7 +233,7 @@ class IFMClientProcess(Process):
         self.socket.bind(("", self.port))
         self.socket.settimeout(0.1)
         ifm_fps = FPS()
-        pre_socket_string = ''
+        pre_socket_string = ""
         while True:
             if self.should_terminate.value:
                 break
@@ -222,7 +241,7 @@ class IFMClientProcess(Process):
                 socket_bytes = self.socket.recv(8192)
             except socket.error as e:
                 err = e.args[0]
-                if err == errno.EAGAIN or err == errno.EWOULDBLOCK or err == 'timed out':
+                if err == errno.EAGAIN or err == errno.EWOULDBLOCK or err == "timed out":
                     continue
                 else:
                     raise e
@@ -245,12 +264,12 @@ class IFMClientProcess(Process):
     def convert_from_blender_data(blender_data):
         data = {}
 
-        for item in blender_data.split('|'):
-            if item.find('#') != -1:
-                k, arr = item.split('#')
-                arr = [float(n) for n in arr.split(',')]
+        for item in blender_data.split("|"):
+            if item.find("#") != -1:
+                k, arr = item.split("#")
+                arr = [float(n) for n in arr.split(",")]
                 data[k.replace("_L", "Left").replace("_R", "Right")] = arr
-            elif item.find('-') != -1:
+            elif item.find("-") != -1:
                 k, v = item.split("-")
                 data[k.replace("_L", "Left").replace("_R", "Right")] = float(v) / 100
 
@@ -277,16 +296,16 @@ class MouseClientProcess(Process):
 
     def run(self):
         mouse = Controller()
-        posLimit = [int(x) for x in args.mouse_input.split(',')]
+        posLimit = [int(x) for x in args.mouse_input.split(",")]
         prev = {
-            'eye_l_h_temp': 0,
-            'eye_r_h_temp': 0,
-            'mouth_ratio': 0,
-            'eye_y_ratio': 0,
-            'eye_x_ratio': 0,
-            'x_angle': 0,
-            'y_angle': 0,
-            'z_angle': 0,
+            "eye_l_h_temp": 0,
+            "eye_r_h_temp": 0,
+            "mouth_ratio": 0,
+            "eye_y_ratio": 0,
+            "eye_x_ratio": 0,
+            "x_angle": 0,
+            "y_angle": 0,
+            "z_angle": 0,
         }
         while True:
             pos = mouse.position
@@ -295,22 +314,28 @@ class MouseClientProcess(Process):
             head_eye_reduce = 0.6
             head_slowness = 0.2
             mouse_data = {
-                'eye_l_h_temp': 0,
-                'eye_r_h_temp': 0,
-                'mouth_ratio': 0,
-                'eye_y_ratio': np.interp(pos[1], [posLimit[1], posLimit[3]], [1, -1]) * eye_limit[1],
-                'eye_x_ratio': np.interp(pos[0], [posLimit[0], posLimit[2]], [1, -1]) * eye_limit[0],
-                'x_angle': np.interp(pos[1], [posLimit[1], posLimit[3]], [1, -1]),
-                'y_angle': np.interp(pos[0], [posLimit[0], posLimit[2]], [1, -1]),
-                'z_angle': 0,
+                "eye_l_h_temp": 0,
+                "eye_r_h_temp": 0,
+                "mouth_ratio": 0,
+                "eye_y_ratio": np.interp(pos[1], [posLimit[1], posLimit[3]], [1, -1])
+                * eye_limit[1],
+                "eye_x_ratio": np.interp(pos[0], [posLimit[0], posLimit[2]], [1, -1])
+                * eye_limit[0],
+                "x_angle": np.interp(pos[1], [posLimit[1], posLimit[3]], [1, -1]),
+                "y_angle": np.interp(pos[0], [posLimit[0], posLimit[2]], [1, -1]),
+                "z_angle": 0,
             }
-            mouse_data['x_angle'] = np.interp(head_slowness, [0, 1], [prev['x_angle'], mouse_data['x_angle']])
-            mouse_data['y_angle'] = np.interp(head_slowness, [0, 1], [prev['y_angle'], mouse_data['y_angle']])
-            mouse_data['eye_y_ratio'] -= mouse_data['x_angle'] * eye_limit[1] * head_eye_reduce
-            mouse_data['eye_x_ratio'] -= mouse_data['y_angle'] * eye_limit[0] * head_eye_reduce
+            mouse_data["x_angle"] = np.interp(
+                head_slowness, [0, 1], [prev["x_angle"], mouse_data["x_angle"]]
+            )
+            mouse_data["y_angle"] = np.interp(
+                head_slowness, [0, 1], [prev["y_angle"], mouse_data["y_angle"]]
+            )
+            mouse_data["eye_y_ratio"] -= mouse_data["x_angle"] * eye_limit[1] * head_eye_reduce
+            mouse_data["eye_x_ratio"] -= mouse_data["y_angle"] * eye_limit[0] * head_eye_reduce
             if args.bongo:
-                mouse_data['y_angle'] += 0.05
-                mouse_data['x_angle'] += 0.05
+                mouse_data["y_angle"] += 0.05
+                mouse_data["x_angle"] += 0.05
             prev = mouse_data
             self.queue.put_nowait(mouse_data)
             time.sleep(1 / 60)
@@ -319,16 +344,16 @@ class MouseClientProcess(Process):
 class ModelClientProcess(Process):
     def __init__(self, input_image):
         super().__init__()
-        self.should_terminate = Value('b', False)
-        self.updated = Value('b', False)
+        self.should_terminate = Value("b", False)
+        self.updated = Value("b", False)
         self.data = None
         self.input_image = input_image
         self.output_queue = Queue()
         self.input_queue = Queue()
-        self.model_fps_number = Value('f', 0.0)
-        self.gpu_fps_number = Value('f', 0.0)
-        self.cache_hit_ratio = Value('f', 0.0)
-        self.gpu_cache_hit_ratio = Value('f', 0.0)
+        self.model_fps_number = Value("f", 0.0)
+        self.gpu_fps_number = Value("f", 0.0)
+        self.cache_hit_ratio = Value("f", 0.0)
+        self.gpu_cache_hit_ratio = Value("f", 0.0)
 
     def run(self):
         model = None
@@ -338,9 +363,15 @@ class ModelClientProcess(Process):
             model = model
             print("Pretrained Model Loaded")
 
-        eyebrow_vector = torch.empty(1, 12, dtype=torch.half if args.model.endswith('half') else torch.float)
-        mouth_eye_vector = torch.empty(1, 27, dtype=torch.half if args.model.endswith('half') else torch.float)
-        pose_vector = torch.empty(1, 6, dtype=torch.half if args.model.endswith('half') else torch.float)
+        eyebrow_vector = torch.empty(
+            1, 12, dtype=torch.half if args.model.endswith("half") else torch.float
+        )
+        mouth_eye_vector = torch.empty(
+            1, 27, dtype=torch.half if args.model.endswith("half") else torch.float
+        )
+        pose_vector = torch.empty(
+            1, 6, dtype=torch.half if args.model.endswith("half") else torch.float
+        )
 
         input_image = self.input_image.to(device)
         eyebrow_vector = eyebrow_vector.to(device)
@@ -360,7 +391,8 @@ class ModelClientProcess(Process):
                     model_input = self.input_queue.get_nowait()
             except queue.Empty:
                 continue
-            if model_input is None: continue
+            if model_input is None:
+                continue
             simplify_arr = [1000] * ifm_converter.pose_size
             if args.simplify >= 1:
                 simplify_arr = [200] * ifm_converter.pose_size
@@ -384,24 +416,35 @@ class ModelClientProcess(Process):
                 simplify_arr[ifm_converter.eye_surprised_left_index] = 10
                 simplify_arr[ifm_converter.eye_surprised_right_index] = 10
                 model_input[ifm_converter.eye_wink_left_index] += model_input[
-                    ifm_converter.eye_happy_wink_left_index]
-                model_input[ifm_converter.eye_happy_wink_left_index] = model_input[
-                                                                           ifm_converter.eye_wink_left_index] / 2
-                model_input[ifm_converter.eye_wink_left_index] = model_input[
-                                                                     ifm_converter.eye_wink_left_index] / 2
+                    ifm_converter.eye_happy_wink_left_index
+                ]
+                model_input[ifm_converter.eye_happy_wink_left_index] = (
+                    model_input[ifm_converter.eye_wink_left_index] / 2
+                )
+                model_input[ifm_converter.eye_wink_left_index] = (
+                    model_input[ifm_converter.eye_wink_left_index] / 2
+                )
                 model_input[ifm_converter.eye_wink_right_index] += model_input[
-                    ifm_converter.eye_happy_wink_right_index]
-                model_input[ifm_converter.eye_happy_wink_right_index] = model_input[
-                                                                            ifm_converter.eye_wink_right_index] / 2
-                model_input[ifm_converter.eye_wink_right_index] = model_input[
-                                                                      ifm_converter.eye_wink_right_index] / 2
+                    ifm_converter.eye_happy_wink_right_index
+                ]
+                model_input[ifm_converter.eye_happy_wink_right_index] = (
+                    model_input[ifm_converter.eye_wink_right_index] / 2
+                )
+                model_input[ifm_converter.eye_wink_right_index] = (
+                    model_input[ifm_converter.eye_wink_right_index] / 2
+                )
 
-                uosum = model_input[ifm_converter.mouth_uuu_index] + \
-                        model_input[ifm_converter.mouth_ooo_index]
+                uosum = (
+                    model_input[ifm_converter.mouth_uuu_index]
+                    + model_input[ifm_converter.mouth_ooo_index]
+                )
                 model_input[ifm_converter.mouth_ooo_index] = uosum
                 model_input[ifm_converter.mouth_uuu_index] = 0
-                is_open = (model_input[ifm_converter.mouth_aaa_index] + model_input[
-                    ifm_converter.mouth_iii_index] + uosum) > 0
+                is_open = (
+                    model_input[ifm_converter.mouth_aaa_index]
+                    + model_input[ifm_converter.mouth_iii_index]
+                    + uosum
+                ) > 0
                 model_input[ifm_converter.mouth_lowered_corner_left_index] = 0
                 model_input[ifm_converter.mouth_lowered_corner_right_index] = 0
                 model_input[ifm_converter.mouth_raised_corner_left_index] = 0.5 if is_open else 0
@@ -432,30 +475,40 @@ class ModelClientProcess(Process):
                 simplify_arr[ifm_converter.eye_surprised_left_index] = 8
                 simplify_arr[ifm_converter.eye_surprised_right_index] = 8
                 model_input[ifm_converter.eye_wink_left_index] += model_input[
-                    ifm_converter.eye_wink_right_index]
-                model_input[ifm_converter.eye_wink_right_index] = model_input[
-                                                                      ifm_converter.eye_wink_left_index] / 2
-                model_input[ifm_converter.eye_wink_left_index] = model_input[
-                                                                     ifm_converter.eye_wink_left_index] / 2
+                    ifm_converter.eye_wink_right_index
+                ]
+                model_input[ifm_converter.eye_wink_right_index] = (
+                    model_input[ifm_converter.eye_wink_left_index] / 2
+                )
+                model_input[ifm_converter.eye_wink_left_index] = (
+                    model_input[ifm_converter.eye_wink_left_index] / 2
+                )
 
                 model_input[ifm_converter.eye_surprised_left_index] += model_input[
-                    ifm_converter.eye_surprised_right_index]
-                model_input[ifm_converter.eye_surprised_right_index] = model_input[
-                                                                           ifm_converter.eye_surprised_left_index] / 2
-                model_input[ifm_converter.eye_surprised_left_index] = model_input[
-                                                                          ifm_converter.eye_surprised_left_index] / 2
+                    ifm_converter.eye_surprised_right_index
+                ]
+                model_input[ifm_converter.eye_surprised_right_index] = (
+                    model_input[ifm_converter.eye_surprised_left_index] / 2
+                )
+                model_input[ifm_converter.eye_surprised_left_index] = (
+                    model_input[ifm_converter.eye_surprised_left_index] / 2
+                )
 
                 model_input[ifm_converter.eye_happy_wink_left_index] += model_input[
-                    ifm_converter.eye_happy_wink_right_index]
-                model_input[ifm_converter.eye_happy_wink_right_index] = model_input[
-                                                                            ifm_converter.eye_happy_wink_left_index] / 2
-                model_input[ifm_converter.eye_happy_wink_left_index] = model_input[
-                                                                           ifm_converter.eye_happy_wink_left_index] / 2
+                    ifm_converter.eye_happy_wink_right_index
+                ]
+                model_input[ifm_converter.eye_happy_wink_right_index] = (
+                    model_input[ifm_converter.eye_happy_wink_left_index] / 2
+                )
+                model_input[ifm_converter.eye_happy_wink_left_index] = (
+                    model_input[ifm_converter.eye_happy_wink_left_index] / 2
+                )
                 model_input[ifm_converter.mouth_aaa_index] = min(
-                    model_input[ifm_converter.mouth_aaa_index] +
-                    model_input[ifm_converter.mouth_ooo_index] / 2 +
-                    model_input[ifm_converter.mouth_iii_index] / 2 +
-                    model_input[ifm_converter.mouth_uuu_index] / 2, 1
+                    model_input[ifm_converter.mouth_aaa_index]
+                    + model_input[ifm_converter.mouth_ooo_index] / 2
+                    + model_input[ifm_converter.mouth_iii_index] / 2
+                    + model_input[ifm_converter.mouth_uuu_index] / 2,
+                    1,
                 )
                 model_input[ifm_converter.mouth_ooo_index] = 0
                 model_input[ifm_converter.mouth_iii_index] = 0
@@ -477,7 +530,7 @@ class ModelClientProcess(Process):
                 hit_in_a_row += 1
             else:
                 hit_in_a_row = 0
-                if args.perf == 'model':
+                if args.perf == "model":
                     tic = time.perf_counter()
                 if args.eyebrow:
                     for i in range(12):
@@ -491,23 +544,30 @@ class ModelClientProcess(Process):
                 if model is None:
                     output_image = input_image
                 else:
-                    output_image = model(input_image, mouth_eye_vector, pose_vector, eyebrow_vector, mouth_eye_vector_c,
-                                         eyebrow_vector_c,
-                                         self.gpu_cache_hit_ratio)
-                if args.perf == 'model':
+                    output_image = model(
+                        input_image,
+                        mouth_eye_vector,
+                        pose_vector,
+                        eyebrow_vector,
+                        mouth_eye_vector_c,
+                        eyebrow_vector_c,
+                        self.gpu_cache_hit_ratio,
+                    )
+                if args.perf == "model":
                     torch.cuda.synchronize()
                     print("model", (time.perf_counter() - tic) * 1000)
                     tic = time.perf_counter()
                 postprocessed_image = output_image[0].float()
-                if args.perf == 'model':
+                if args.perf == "model":
                     print("cpu()", (time.perf_counter() - tic) * 1000)
                     tic = time.perf_counter()
                 postprocessed_image = convert_linear_to_srgb((postprocessed_image + 1.0) / 2.0)
                 c, h, w = postprocessed_image.shape
-                postprocessed_image = 255.0 * torch.transpose(postprocessed_image.reshape(c, h * w), 0, 1).reshape(h, w,
-                                                                                                                   c)
+                postprocessed_image = 255.0 * torch.transpose(
+                    postprocessed_image.reshape(c, h * w), 0, 1
+                ).reshape(h, w, c)
                 postprocessed_image = postprocessed_image.byte().detach().cpu().numpy()
-                if args.perf == 'model':
+                if args.perf == "model":
                     print("postprocess", (time.perf_counter() - tic) * 1000)
                     tic = time.perf_counter()
 
@@ -526,7 +586,7 @@ class ModelClientProcess(Process):
 @torch.no_grad()
 def main():
     img = Image.open(f"data/images/{args.character}.png")
-    img = img.convert('RGBA')
+    img = img.convert("RGBA")
     IMG_WIDTH = 512
     wRatio = img.size[0] / IMG_WIDTH
     img = img.resize((IMG_WIDTH, int(img.size[1] / wRatio)))
@@ -536,7 +596,7 @@ def main():
             x = i % IMG_WIDTH
             img.putpixel((x, y), (0, 0, 0, 0))
     input_image = preprocessing_image(img.crop((0, 0, IMG_WIDTH, IMG_WIDTH)))
-    if args.model.endswith('half'):
+    if args.model.endswith("half"):
         input_image = torch.from_numpy(input_image).half() * 2.0 - 1
     else:
         input_image = torch.from_numpy(input_image).float() * 2.0 - 1
@@ -551,7 +611,6 @@ def main():
     output_fps = FPS()
 
     if not args.debug_input:
-
         if args.ifm is not None:
             client_process = IFMClientProcess()
             client_process.daemon = True
@@ -571,8 +630,7 @@ def main():
             print("Mouse Input Running")
 
         else:
-
-            if args.input == 'cam':
+            if args.input == "cam":
                 cap = cv2.VideoCapture(0)
                 ret, frame = cap.read()
                 if ret is None:
@@ -580,7 +638,7 @@ def main():
             else:
                 cap = cv2.VideoCapture(args.input)
                 frame_count = 0
-                os.makedirs(os.path.join('dst', args.character, args.output_dir), exist_ok=True)
+                os.makedirs(os.path.join("dst", args.character, args.output_dir), exist_ok=True)
                 print("Webcam Input Running")
 
     facemesh = mp.solutions.face_mesh.FaceMesh(refine_landmarks=True)
@@ -592,13 +650,17 @@ def main():
             cam_scale = 2
         if args.alpha_split:
             cam_width_scale = 2
-        cam = pyvirtualcam.Camera(width=args.output_w * cam_scale * cam_width_scale, height=args.output_h * cam_scale,
-                                  fps=60,
-                                  backend=args.output_webcam,
-                                  fmt=
-                                  {'unitycapture': pyvirtualcam.PixelFormat.RGBA, 'obs': pyvirtualcam.PixelFormat.RGB}[
-                                      args.output_webcam])
-        print(f'Using virtual camera: {cam.device}')
+        cam = pyvirtualcam.Camera(
+            width=args.output_w * cam_scale * cam_width_scale,
+            height=args.output_h * cam_scale,
+            fps=60,
+            backend=args.output_webcam,
+            fmt={
+                "unitycapture": pyvirtualcam.PixelFormat.RGBA,
+                "obs": pyvirtualcam.PixelFormat.RGB,
+            }[args.output_webcam],
+        )
+        print(f"Using virtual camera: {cam.device}")
 
     a = None
 
@@ -624,18 +686,18 @@ def main():
     pose_vector_0 = None
 
     pose_queue = []
-    blender_data={}
-    if(args.ifm):
+    blender_data = {}
+    if args.ifm:
         blender_data = create_default_blender_data()
     mouse_data = {
-        'eye_l_h_temp': 0,
-        'eye_r_h_temp': 0,
-        'mouth_ratio': 0,
-        'eye_y_ratio': 0,
-        'eye_x_ratio': 0,
-        'x_angle': 0,
-        'y_angle': 0,
-        'z_angle': 0,
+        "eye_l_h_temp": 0,
+        "eye_r_h_temp": 0,
+        "mouth_ratio": 0,
+        "eye_y_ratio": 0,
+        "eye_x_ratio": 0,
+        "x_angle": 0,
+        "y_angle": 0,
+        "z_angle": 0,
     }
 
     model_output = None
@@ -650,7 +712,7 @@ def main():
         # input_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         # results = facemesh.process(input_frame)
 
-        if args.perf == 'main':
+        if args.perf == "main":
             tic = time.perf_counter()
         if args.debug_input:
             eyebrow_vector_c = [0.0] * 12
@@ -669,13 +731,15 @@ def main():
             pose_vector_c[1] = math.sin(time.perf_counter() * 1.2)
             pose_vector_c[2] = math.sin(time.perf_counter() * 1.5)
 
-            eyebrow_vector_c[6]=math.sin(time.perf_counter() * 1.1)
-            eyebrow_vector_c[7]=math.sin(time.perf_counter() * 1.1)
+            eyebrow_vector_c[6] = math.sin(time.perf_counter() * 1.1)
+            eyebrow_vector_c[7] = math.sin(time.perf_counter() * 1.1)
 
         elif args.osf is not None:
             try:
                 new_blender_data = blender_data
-                while not client_process.should_terminate.value and not client_process.queue.empty():
+                while (
+                    not client_process.should_terminate.value and not client_process.queue.empty()
+                ):
                     new_blender_data = client_process.queue.get_nowait()
                 blender_data = new_blender_data
             except queue.Empty:
@@ -684,23 +748,29 @@ def main():
             mouth_eye_vector_c = [0.0] * 27
             pose_vector_c = [0.0] * 6
 
-            if len(blender_data)!=0:
+            if len(blender_data) != 0:
+
                 def sigmoid(x):
-                    return 1 / (1 + math.exp(-(x-0.5)*10))
+                    return 1 / (1 + math.exp(-(x - 0.5) * 10))
+
                 # 用了sigmoid降低两端大概0.2范围的灵敏度
-                mouth_eye_vector_c[2] = sigmoid(1-blender_data['leftEyeOpen'])
-                mouth_eye_vector_c[3] = sigmoid(1-blender_data['rightEyeOpen'])
-                #print(mouth_eye_vector_c[2])
+                mouth_eye_vector_c[2] = sigmoid(1 - blender_data["leftEyeOpen"])
+                mouth_eye_vector_c[3] = sigmoid(1 - blender_data["rightEyeOpen"])
+                # print(mouth_eye_vector_c[2])
 
                 # 用了sqrt提升低数值的灵敏度
-                mouth_eye_vector_c[14] = math.sqrt(max(blender_data['MouthOpen'],0))
+                mouth_eye_vector_c[14] = math.sqrt(max(blender_data["MouthOpen"], 0))
                 # print(mouth_eye_vector_c[14])
 
-                mouth_eye_vector_c[25] = -blender_data['eyeRotationY']*3-(blender_data['rotationX'])/57.3*1.5
-                mouth_eye_vector_c[26] = blender_data['eyeRotationX']*3+(blender_data['rotationY'])/57.3
+                mouth_eye_vector_c[25] = (
+                    -blender_data["eyeRotationY"] * 3 - (blender_data["rotationX"]) / 57.3 * 1.5
+                )
+                mouth_eye_vector_c[26] = (
+                    blender_data["eyeRotationX"] * 3 + (blender_data["rotationY"]) / 57.3
+                )
                 # print(mouth_eye_vector_c[25:27])
-                eyebrow_vector_c[6]=blender_data['EyebrowUpDownLeft']
-                eyebrow_vector_c[7]=blender_data['EyebrowUpDownRight']
+                eyebrow_vector_c[6] = blender_data["EyebrowUpDownLeft"]
+                eyebrow_vector_c[7] = blender_data["EyebrowUpDownRight"]
                 # print(blender_data['EyebrowUpDownLeft'],blender_data['EyebrowUpDownRight'])
 
                 # if pose_vector_0==None:
@@ -711,25 +781,27 @@ def main():
                 # pose_vector_c[0] = (blender_data['rotationX']-pose_vector_0[0])/57.3*3
                 # pose_vector_c[1] = -(blender_data['rotationY']-pose_vector_0[1])/57.3*3
                 # pose_vector_c[2] = (blender_data['rotationZ']-pose_vector_0[2])/57.3
-                pose_vector_c[0] = (blender_data['rotationX'])/57.3*3
-                pose_vector_c[1] = -(blender_data['rotationY'])/57.3*3
-                pose_vector_c[2] = (blender_data['rotationZ'])/57.3*2
+                pose_vector_c[0] = (blender_data["rotationX"]) / 57.3 * 3
+                pose_vector_c[1] = -(blender_data["rotationY"]) / 57.3 * 3
+                pose_vector_c[2] = (blender_data["rotationZ"]) / 57.3 * 2
                 # print(pose_vector_c)
 
-                if position_vector_0==None:
-                    position_vector_0=[0,0,0,1]
-                    position_vector_0[0] = blender_data['translationX']
-                    position_vector_0[1] = blender_data['translationY']
-                    position_vector_0[2] = blender_data['translationZ']
-                position_vector[0] = -(blender_data['translationX']-position_vector_0[0])*0.1
-                position_vector[1] = -(blender_data['translationY']-position_vector_0[1])*0.1
-                position_vector[2] = -(blender_data['translationZ']-position_vector_0[2])*0.1
+                if position_vector_0 == None:
+                    position_vector_0 = [0, 0, 0, 1]
+                    position_vector_0[0] = blender_data["translationX"]
+                    position_vector_0[1] = blender_data["translationY"]
+                    position_vector_0[2] = blender_data["translationZ"]
+                position_vector[0] = -(blender_data["translationX"] - position_vector_0[0]) * 0.1
+                position_vector[1] = -(blender_data["translationY"] - position_vector_0[1]) * 0.1
+                position_vector[2] = -(blender_data["translationZ"] - position_vector_0[2]) * 0.1
 
         elif args.ifm is not None:
             # get pose from ifm
             try:
                 new_blender_data = blender_data
-                while not client_process.should_terminate.value and not client_process.queue.empty():
+                while (
+                    not client_process.should_terminate.value and not client_process.queue.empty()
+                ):
                     new_blender_data = client_process.queue.get_nowait()
                 blender_data = new_blender_data
             except queue.Empty:
@@ -769,7 +841,6 @@ def main():
             position_vector = blender_data[HEAD_BONE_QUAT]
 
         elif args.mouse_input is not None:
-
             try:
                 new_blender_data = mouse_data
                 while not client_process.queue.empty():
@@ -778,14 +849,14 @@ def main():
             except queue.Empty:
                 pass
 
-            eye_l_h_temp = mouse_data['eye_l_h_temp']
-            eye_r_h_temp = mouse_data['eye_r_h_temp']
-            mouth_ratio = mouse_data['mouth_ratio']
-            eye_y_ratio = mouse_data['eye_y_ratio']
-            eye_x_ratio = mouse_data['eye_x_ratio']
-            x_angle = mouse_data['x_angle']
-            y_angle = mouse_data['y_angle']
-            z_angle = mouse_data['z_angle']
+            eye_l_h_temp = mouse_data["eye_l_h_temp"]
+            eye_r_h_temp = mouse_data["eye_r_h_temp"]
+            mouth_ratio = mouse_data["mouth_ratio"]
+            eye_y_ratio = mouse_data["eye_y_ratio"]
+            eye_x_ratio = mouse_data["eye_x_ratio"]
+            x_angle = mouse_data["x_angle"]
+            y_angle = mouse_data["y_angle"]
+            z_angle = mouse_data["z_angle"]
 
             eyebrow_vector_c = [0.0] * 12
             mouth_eye_vector_c = [0.0] * 27
@@ -853,26 +924,56 @@ def main():
             pose_vector_c[1] = y_angle * 2.0  # temp weight
             pose_vector_c[2] = (z_angle + 1.5) * 2  # temp weight
 
-        if args.auto_mouth_threshold != 0:
-            if 'stream' not in locals().keys():
-
-                import pyaudio
+        if args.auto_mouth is True:
+            if "stream" not in locals().keys():
                 p = pyaudio.PyAudio()
-                output_device_index=p.get_default_input_device_info()["index"]
-                output_device_channels=p.get_default_input_device_info()["maxInputChannels"]
-                output_device_rate=int(p.get_default_input_device_info()["defaultSampleRate"])
-                stream = p.open(format=pyaudio.paInt16,
-                                channels=output_device_channels,
-                                rate=output_device_rate,
-                                input=True,
-                                output_device_index=output_device_index)
-            data = stream.read(1024)
+
+                # Create PyAudio instance via context manager.
+                try:
+                    wasapi_info = p.get_host_api_info_by_type(pyaudio.paWASAPI)
+                except OSError:
+                    print("Looks like WASAPI is not available on the system.")
+
+                # Get default WASAPI speakers
+                default_speakers = p.get_device_info_by_index(wasapi_info["defaultOutputDevice"])
+
+                if not default_speakers["isLoopbackDevice"]:
+                    for loopback in p.get_loopback_device_info_generator():
+                        # Try to find loopback device with same name(and [Loopback suffix]).
+                        # Unfortunately, this is the most adequate way at the moment.
+                        if default_speakers["name"] in loopback["name"]:
+                            default_speakers = loopback
+                            break
+                    else:
+                        print(
+                            "Default loopback output device not found.\n\nRun `python -m pyaudiowpatch` to check available devices."
+                        )
+
+                if args.auto_mouth_method == "microphone":
+                    stream = p.open(
+                        format=pyaudio.paInt16,
+                        channels=p.get_default_input_device_info()["maxInputChannels"],
+                        rate=int(p.get_default_input_device_info()["defaultSampleRate"]),
+                        input=True,
+                        output_device_index=p.get_default_input_device_info()["index"],
+                    )
+                elif args.auto_mouth_method == "wasapi":
+                    stream = p.open(
+                        format=pyaudio.paInt16,
+                        channels=default_speakers["maxInputChannels"],
+                        rate=int(default_speakers["defaultSampleRate"]),
+                        frames_per_buffer=1024,
+                        input=True,
+                        input_device_index=default_speakers["index"],
+                    )
+
+            stream_data = stream.read(1024)
             # Convert data to numpy array
-            data = np.frombuffer(data, dtype=np.int16)
+            stream_array = np.frombuffer(stream_data, dtype=np.int16)
             # Calculate volume
-            volume = min(1,np.max(np.abs(data))/args.auto_mouth_threshold)
+            volume = min(1, np.max(np.abs(stream_array)) / args.auto_mouth_threshold)
             mouth_eye_vector_c[14] = volume
-            
+
         pose_vector_c[3] = pose_vector_c[1]
         pose_vector_c[4] = pose_vector_c[2]
 
@@ -901,8 +1002,8 @@ def main():
 
         postprocessed_image = model_output
 
-        if args.perf == 'main':
-            print('===')
+        if args.perf == "main":
+            print("===")
             print("input", time.perf_counter() - tic)
             tic = time.perf_counter()
 
@@ -925,11 +1026,10 @@ def main():
         rm[1, 2] += dy + args.output_h / 2 - IMG_WIDTH / 2
 
         postprocessed_image = cv2.warpAffine(
-            postprocessed_image,
-            rm,
-            (args.output_w, args.output_h))
+            postprocessed_image, rm, (args.output_w, args.output_h)
+        )
 
-        if args.perf == 'main':
+        if args.perf == "main":
             print("extendmovement", (time.perf_counter() - tic) * 1000)
             tic = time.perf_counter()
 
@@ -948,12 +1048,17 @@ def main():
             postprocessed_image = a.save_image_to_numpy()
             postprocessed_image = cv2.merge((postprocessed_image, alpha_channel))
             postprocessed_image = cv2.cvtColor(postprocessed_image, cv2.COLOR_BGRA2RGBA)
-            if args.perf == 'main':
+            if args.perf == "main":
                 print("anime4k", (time.perf_counter() - tic) * 1000)
                 tic = time.perf_counter()
         if args.alpha_split:
             alpha_image = cv2.merge(
-                [postprocessed_image[:, :, 3], postprocessed_image[:, :, 3], postprocessed_image[:, :, 3]])
+                [
+                    postprocessed_image[:, :, 3],
+                    postprocessed_image[:, :, 3],
+                    postprocessed_image[:, :, 3],
+                ]
+            )
             alpha_image = cv2.cvtColor(alpha_image, cv2.COLOR_RGB2RGBA)
             postprocessed_image = cv2.hconcat([postprocessed_image, alpha_image])
 
@@ -961,29 +1066,68 @@ def main():
             output_frame = cv2.cvtColor(postprocessed_image, cv2.COLOR_RGBA2BGRA)
             # resized_frame = cv2.resize(output_frame, (np.min(debug_image.shape[:2]), np.min(debug_image.shape[:2])))
             # output_frame = np.concatenate([debug_image, resized_frame], axis=1)
-            cv2.putText(output_frame, str('OUT_FPS:%.1f' % output_fps_number), (0, 16), cv2.FONT_HERSHEY_PLAIN, 1,
-                        (0, 255, 0), 1)
+            cv2.putText(
+                output_frame,
+                str("OUT_FPS:%.1f" % output_fps_number),
+                (0, 16),
+                cv2.FONT_HERSHEY_PLAIN,
+                1,
+                (0, 255, 0),
+                1,
+            )
             if args.max_cache_len > 0:
-                cv2.putText(output_frame, str(
-                    'GPU_FPS:%.1f / %.1f' % (model_process.model_fps_number.value, model_process.gpu_fps_number.value)),
-                            (0, 32),
-                            cv2.FONT_HERSHEY_PLAIN, 1, (0, 255, 0), 1)
+                cv2.putText(
+                    output_frame,
+                    str(
+                        "GPU_FPS:%.1f / %.1f"
+                        % (model_process.model_fps_number.value, model_process.gpu_fps_number.value)
+                    ),
+                    (0, 32),
+                    cv2.FONT_HERSHEY_PLAIN,
+                    1,
+                    (0, 255, 0),
+                    1,
+                )
             else:
-                cv2.putText(output_frame, str(
-                    'GPU_FPS:%.1f' % (model_process.model_fps_number.value)),
-                            (0, 32),
-                            cv2.FONT_HERSHEY_PLAIN, 1, (0, 255, 0), 1)
+                cv2.putText(
+                    output_frame,
+                    str("GPU_FPS:%.1f" % (model_process.model_fps_number.value)),
+                    (0, 32),
+                    cv2.FONT_HERSHEY_PLAIN,
+                    1,
+                    (0, 255, 0),
+                    1,
+                )
             if args.ifm is not None:
-                cv2.putText(output_frame, str('IFM_FPS:%.1f' % client_process.ifm_fps_number.value), (0, 48),
-                            cv2.FONT_HERSHEY_PLAIN, 1, (0, 255, 0), 1)
+                cv2.putText(
+                    output_frame,
+                    str("IFM_FPS:%.1f" % client_process.ifm_fps_number.value),
+                    (0, 48),
+                    cv2.FONT_HERSHEY_PLAIN,
+                    1,
+                    (0, 255, 0),
+                    1,
+                )
             if args.max_cache_len > 0:
-                cv2.putText(output_frame, str('MEMCACHED:%.1f%%' % (model_process.cache_hit_ratio.value * 100)),
-                            (0, 64),
-                            cv2.FONT_HERSHEY_PLAIN, 1, (0, 255, 0), 1)
+                cv2.putText(
+                    output_frame,
+                    str("MEMCACHED:%.1f%%" % (model_process.cache_hit_ratio.value * 100)),
+                    (0, 64),
+                    cv2.FONT_HERSHEY_PLAIN,
+                    1,
+                    (0, 255, 0),
+                    1,
+                )
             if args.max_gpu_cache_len > 0:
-                cv2.putText(output_frame, str('GPUCACHED:%.1f%%' % (model_process.gpu_cache_hit_ratio.value * 100)),
-                            (0, 80),
-                            cv2.FONT_HERSHEY_PLAIN, 1, (0, 255, 0), 1)
+                cv2.putText(
+                    output_frame,
+                    str("GPUCACHED:%.1f%%" % (model_process.gpu_cache_hit_ratio.value * 100)),
+                    (0, 80),
+                    cv2.FONT_HERSHEY_PLAIN,
+                    1,
+                    (0, 255, 0),
+                    1,
+                )
             cv2.imshow("frame", output_frame)
             # cv2.imshow("camera", debug_image)
             cv2.waitKey(1)
@@ -992,14 +1136,14 @@ def main():
             # result_image[720 - 512:, 1280 // 2 - 256:1280 // 2 + 256] = cv2.resize(
             #     cv2.cvtColor(postprocessing_image(output_image.cpu()), cv2.COLOR_RGBA2RGB), (512, 512))
             result_image = postprocessed_image
-            if args.output_webcam == 'obs':
+            if args.output_webcam == "obs":
                 result_image = cv2.cvtColor(result_image, cv2.COLOR_RGBA2RGB)
             cam.send(result_image)
             cam.sleep_until_next_frame()
-        if args.perf == 'main':
+        if args.perf == "main":
             print("output", (time.perf_counter() - tic) * 1000)
             tic = time.perf_counter()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
